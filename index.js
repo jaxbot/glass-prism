@@ -21,8 +21,9 @@ exports.cards = {};
 // user card storage
 var client_tokens = [];
 
-var verify_hash = null;
+var config = {};
 
+var callbacks = {};
 
 exports.init = function(config, callback) {
 	// load all cards and turn into templates
@@ -44,7 +45,10 @@ exports.init = function(config, callback) {
 
 	oauth2Client = new googleapis.OAuth2Client(config.client_id, config.client_secret, config.redirect_dir);
 
-	verify_hash = config.verify_hash;
+	this.config = config;
+
+	if (config.subscriptionCallback)
+		callbacks.subscriptionCallback = config;
 
 	googleapis.discover('mirror','v1').execute(function(err,client) {
 		if (err) return callback(err);
@@ -123,7 +127,7 @@ function httpHandler(req,res) {
 					var d = JSON.parse(postBody);
 					console.log(d);
 
-					if (d.verifyToken != verify_hash) {
+					if (d.verifyToken != config.verify_hash) {
 						console.log("Bad hash!");
 						res.end();
 						return;
@@ -135,14 +139,17 @@ function httpHandler(req,res) {
 						return;
 					}
 					oauth2Client.credentials = client_tokens[d.userToken];
-					if (d.itemId) {
-						apiclient.mirror.timeline.get({
-							id: d.itemId
-						}).withAuthClient(oauth2Client).execute(function(err,data) {
-							if (err) return subscriptionCallback(err);
 
-							subscriptionCallback(err, { data: d, item: data });
-						});
+					if (callbacks.subscriptionCallback) {
+						if (d.itemId) {
+							apiclient.mirror.timeline.get({
+								id: d.itemId
+							}).withAuthClient(oauth2Client).execute(function(err,data) {
+								if (err) return subscriptionCallback(err);
+
+								callbacks.subscriptionCallback(err, { data: d, item: data });
+							});
+						}
 					}
 					res.end(200);
 				} catch (e) {
@@ -174,7 +181,7 @@ function httpHandler(req,res) {
 						"collection": "timeline",
 						"operation": [], // empty set = all
 						"userToken": index,
-						"verifyToken": verify_hash
+						"verifyToken": config.verify_hash
 					}).withAuthClient(oauth2Client).execute(function(err,data) {
 						if (err) {
 							console.log(err);
@@ -183,7 +190,7 @@ function httpHandler(req,res) {
 
 					// add contact interface
 					apiclient.mirror.contacts.insert({
-						"id": "gtop_contact_provider_"+config.source_id,
+						"id": "prism_contact_provider_"+config.id,
 						"displayName": "gtop: " + config.hostname,
 						"speakableName": config.speakableName,
 						"imageUrls": [config.contactIcon],
