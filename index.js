@@ -25,7 +25,7 @@ var config = {};
 
 var callbacks = {};
 
-exports.init = function(config, callback) {
+function init(config, callback) {
 	// load all cards and turn into templates
 	var files = fs.readdirSync("cards/");
 	for (var i = 0; i < files.length; i++) {
@@ -40,72 +40,81 @@ exports.init = function(config, callback) {
 			oauth2Client.credentials = client_tokens[0];
 		}
 	} catch(e) {
-		console.log("Info: failed to load .clienttokens.json, using blank array");
+		logOnErr("Info: failed to load .clienttokens.json, using blank array");
 	}
 
 	oauth2Client = new googleapis.OAuth2Client(config.client_id, config.client_secret, config.redirect_dir);
 
 	this.config = config;
 
-	if (config.subscriptionCallback)
-		callbacks.subscriptionCallback = config;
+	if (config.callbacks.subscription)
+		callbacks.subscriptionCallback = config.callbacks.subscription;
+	if (config.callbacks.newclient)
+		callbacks.newClientCallback = config.callbacks.newclient;
 
 	googleapis.discover('mirror','v1').execute(function(err,client) {
-		if (err) return callback(err);
-
 		mirror = client.mirror;
 
 		http.createServer(httpHandler).listen(config.port);
 
-		callback(null);
+		logOnErr(err);
+		callback(err);
 	});
 }
 
+/* insertCard
+ * Insert a card for a specific user token
+ */
+function insertCard(options,callback) {
+	mirrorCall(mirror.timeline.insert({
+		"html": options.card,
+		"menuItems": [
+			{"action":"REPLY"},
+			{"action":"TOGGLE_PINNED"},
+			{"action":"DELETE"}
+		],
+		"sourceItemId": config.id
+	}),options.token,callback);
+};
 
 /* updateAllCards
  * Update cards for all users by id
  */
-exports.updateAllCards = function(options) {
+function updateAllCards(options) {
 	for (var i = 0; i < client_tokens.length; i++)
-		exports.updateCard({ tokens: client_tokens[i], card: options.card, pinned: options.pinned, id: options.id });
+		updateCard({ tokens: client_tokens[i], card: options.card, pinned: options.pinned, id: options.id });
 }
 
 /* updateCard
  * Update a single card
  */
-exports.updateCard = function(options,callback) {
-	oauth2Client.credentials = options.tokens;
+function updateCard(options,callback) {
+	mirrorCall(
+		mirror.timeline.list({ "sourceItemId": options.id, "isPinned": options.pinned || true }),
+		options.token,
+		function(err,data) {
+			logOnErr(err);
 
-	mirror.timeline.list({ "sourceItemId": options.id, "isPinned": options.pinned || true })
-	.withAuthClient(oauth2Client)
-	.execute(function(err,data) {
-		var apiCall;
-		if (err) {
-			console.log(err);
-			return;
-		}
-		if (data && data.items.length > 0) {
-			apiCall = mirror.timeline.patch({"id": data.items[0].id }, {"html": options.card});
-		} else {
-			apiCall = mirror.timeline.insert({
-				"html": options.card,
-				"menuItems": [
-					{"action":"REPLY"},
-					{"action":"TOGGLE_PINNED"},
-					{"action":"DELETE"}
-				],
-				"sourceItemId": config.id
-			});
-		}
-
-		exports.mirrorCall(apiCall, options.tokens, callback);
+			if (data && data.items.length > 0) {
+				mirrorCall(mirror.timeline.patch({"id": data.items[0].id }, {"html": options.card}), options.tokens, callback);
+			} else {
+				insertCard(options,callback);
+			}
 	});
 }
 
-exports.mirrorCall = function(call, tokens, callback) {
+/* Make an API call with the Mirror API, using a specific token
+ */
+function mirrorCall(call, tokens, callback) {
 	oauth2Client.credentials = tokens;
 	call.withAuthClient(oauth2Client).execute(callback);
 }
+
+exports.mirrorCall = mirrorCall;
+exports.updateCard = updateCard;
+exports.insertCard = insertCard;
+exports.updateAllCards = updateAllCards;
+exports.init = init;
 	
 function httpHandler(req,res) {
 	var parsedUrl = url.parse(req.url, true)
@@ -138,15 +147,14 @@ function httpHandler(req,res) {
 						res.end();
 						return;
 					}
-					oauth2Client.credentials = client_tokens[d.userToken];
+
+					d.token = client_tokens[d.userToken];
 
 					if (callbacks.subscriptionCallback) {
 						if (d.itemId) {
-							apiclient.mirror.timeline.get({
+							mirrorCall(mirror.timeline.get({
 								id: d.itemId
-							}).withAuthClient(oauth2Client).execute(function(err,data) {
-								if (err) return subscriptionCallback(err);
-
+							}), d.token, function(err,data) {
 								callbacks.subscriptionCallback(err, { data: d, item: data });
 							});
 						}
@@ -171,37 +179,35 @@ function httpHandler(req,res) {
 
 					client_tokens.push(tokens);
 
-					getSystemLoadInfo();
-
 					oauth2Client.credentials = tokens;
 
 					// add subscriptions
-					apiclient.mirror.subscriptions.insert({
-						"callbackUrl": config.subscription_callback,
-						"collection": "timeline",
-						"operation": [], // empty set = all
-						"userToken": index,
-						"verifyToken": config.verify_hash
-					}).withAuthClient(oauth2Client).execute(function(err,data) {
-						if (err) {
-							console.log(err);
-						}
-					});
+					if (config.callbacks.subscription) {
+						mirrorCall(mirror.subscriptions.insert({
+							"callbackUrl": config.subscription_callback,
+							"collection": "timeline",
+							"operation": [], // empty set = all
+							"userToken": index,
+							"verifyToken": config.verify_hash
+						}), tokens, logOnErr);
+					}
 
 					// add contact interface
-					apiclient.mirror.contacts.insert({
-						"id": "prism_contact_provider_"+config.id,
-						"displayName": "gtop: " + config.hostname,
-						"speakableName": config.speakableName,
-						"imageUrls": [config.contactIcon],
-						"priority": 7,
-						"acceptCommands": [
-							{"type":"POST_AN_UPDATE"}
-						]
-					}).withAuthClient(oauth2Client).execute(function(err,data) {
-						if (err)
-							console.log(err);
-					});
+					if (config.contactName) {
+						mirrorCall(mirror.contacts.insert({
+							"id": "prism_contact_provider_"+config.id,
+							"displayName": config.contactName,
+							"speakableName": config.speakableName,
+							"imageUrls": [config.contactIcon],
+							"priority": 7,
+							"acceptCommands": [
+								{"type":"POST_AN_UPDATE"}
+							]
+						}), tokens, logOnErr);
+					}
+
+					if (callbacks.newClientCallback)
+						callbacks.newClientCallback(tokens);
 
 					res.writeHead(302, { "Location": "success" });
 					res.end();
@@ -227,4 +233,9 @@ function httpHandler(req,res) {
 			break;
 	}
 };
+
+function logOnErr(err) {
+	if (err)
+		console.log(err);
+}
 
