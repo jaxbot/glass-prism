@@ -198,7 +198,7 @@ function httpHandler(req,res) {
 					if (config.contactName) {
 						mirrorCall(mirror.contacts.insert({
 							"id": "prism_contact_provider_"+config.id,
-							"displayName": config.contactName,
+							"displayName": config.displayName,
 							"speakableName": config.speakableName,
 							"imageUrls": [config.contactIcon],
 							"priority": 7,
