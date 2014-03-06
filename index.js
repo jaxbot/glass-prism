@@ -37,10 +37,10 @@ function init(config, callback) {
 		var filedata = fs.readFileSync(".clienttokens.json");
 		if (filedata) {
 			client_tokens = JSON.parse(filedata.toString());
-			oauth2Client.credentials = client_tokens[0];
 		}
 	} catch(e) {
 		logOnErr("Info: failed to load .clienttokens.json, using blank array");
+		client_tokens = [];
 	}
 
 	oauth2Client = new googleapis.OAuth2Client(config.client_id, config.client_secret, config.redirect_dir);
@@ -73,8 +73,8 @@ function insertCard(options,callback) {
 			{"action":"TOGGLE_PINNED"},
 			{"action":"DELETE"}
 		],
-		"sourceItemId": config.id
-	}),options.token,callback);
+		"sourceItemId": options.id
+	}),options.tokens,callback);
 };
 
 /* updateAllCards
@@ -89,11 +89,13 @@ function updateAllCards(options) {
  * Update a single card
  */
 function updateCard(options,callback) {
+	console.log(options);
 	mirrorCall(
 		mirror.timeline.list({ "sourceItemId": options.id, "isPinned": options.pinned || true }),
-		options.token,
+		options.tokens,
 		function(err,data) {
 			logOnErr(err);
+			console.log(data);
 
 			if (data && data.items.length > 0) {
 				mirrorCall(mirror.timeline.patch({"id": data.items[0].id }, {"html": options.card}), options.tokens, callback);
