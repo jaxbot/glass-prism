@@ -25,7 +25,7 @@ var config = {};
 
 var callbacks = {};
 
-function init(config, callback) {
+function init(_config, callback) {
 	// load all cards and turn into templates
 	var files = fs.readdirSync("cards/");
 	for (var i = 0; i < files.length; i++) {
@@ -43,9 +43,9 @@ function init(config, callback) {
 		client_tokens = [];
 	}
 
-	oauth2Client = new googleapis.OAuth2Client(config.client_id, config.client_secret, config.redirect_dir);
+	config = _config;
 
-	this.config = config;
+	oauth2Client = new googleapis.OAuth2Client(config.client_id, config.client_secret, config.redirect_dir);
 
 	if (config.callbacks.subscription)
 		callbacks.subscriptionCallback = config.callbacks.subscription;
@@ -57,6 +57,16 @@ function init(config, callback) {
 
 		http.createServer(httpHandler).listen(config.port);
 
+		for (var index = 0; index < client_tokens.length; index++) {
+			// reinstall the subscriptions, in case something changed or a crash occurred
+			if (config.subscription_callback) {
+				installSubscription(client_tokens[index], index);
+			}
+			if (config.displayName) {
+				installContact(client_tokens[index]);
+			}
+		}
+
 		logOnErr(err);
 		callback(err);
 	});
@@ -66,14 +76,22 @@ function init(config, callback) {
  * Insert a card for a specific user token
  */
 function insertCard(options,callback) {
+	if (!options.menuItems)
+		options.menuItems = [
+				{"action":"DELETE"},
+				{"action":"TOGGLE_PINNED"},
+			];
+	if (!options.bundleId)
+		options.bundleId = "";
+	if (!options.isBundleCover)
+		options.isBundleCover = false;
+
 	mirrorCall(mirror.timeline.insert({
-		"html": options.card,
-		"menuItems": [
-			{"action":"REPLY"},
-			{"action":"TOGGLE_PINNED"},
-			{"action":"DELETE"}
-		],
-		"sourceItemId": options.id
+		"html": options.html,
+		"menuItems": options.menuItems,
+		"sourceItemId": options.sourceItemId,
+		"bundleId": options.bundleId,
+		"isBundleCover": options.isBundleCover
 	}),options.tokens,callback);
 };
 
@@ -81,8 +99,10 @@ function insertCard(options,callback) {
  * Update cards for all users by id
  */
 function updateAllCards(options) {
-	for (var i = 0; i < client_tokens.length; i++)
-		updateCard({ tokens: client_tokens[i], card: options.card, pinned: options.pinned, id: options.id });
+	for (var i = 0; i < client_tokens.length; i++) {
+		options.tokens = client_tokens[i];
+		updateCard(options);
+	}
 }
 
 /* updateCard
@@ -91,18 +111,52 @@ function updateAllCards(options) {
 function updateCard(options,callback) {
 	console.log(options);
 	mirrorCall(
-		mirror.timeline.list({ "sourceItemId": options.id, "isPinned": options.pinned || true }),
+		mirror.timeline.list({ "sourceItemId": options.sourceItemId, "isPinned": options.pinned || true }),
 		options.tokens,
 		function(err,data) {
 			logOnErr(err);
 			console.log(data);
 
 			if (data && data.items.length > 0) {
-				mirrorCall(mirror.timeline.patch({"id": data.items[0].id }, {"html": options.card}), options.tokens, callback);
+				mirrorCall(mirror.timeline.patch({"id": data.items[0].id }, {"html": options.html}), options.tokens, callback);
 			} else {
 				insertCard(options,callback);
 			}
 	});
+}
+
+function deleteBundle(options) {
+	for (var i = 0; i < client_tokens.length; i++) {
+		options.tokens = client_tokens[i];
+		mirrorCall(
+			mirror.timeline.list({ "bundleId": options.bundleId }),
+			options.tokens,
+			function(err,data) {
+				for (var j = 0; j < data.items.length; j++) {
+					options.id = data.items[j].id;
+					deleteCard(options);
+				}
+			}
+		);
+	}
+}
+
+function deleteCard(options) {
+	console.log(options);
+	mirrorCall(
+		mirror.timeline.delete({"id": options.id}),
+		options.tokens,
+		function(err,data) {
+			console.log(err);
+			console.log(data);
+		});
+}
+
+function patchCard(options,callback) {
+	mirrorCall(
+		mirror.timeline.patch({"id": options.id}, { "html": options.html }),
+		options.tokens,
+		callback);
 }
 
 /* Make an API call with the Mirror API, using a specific token
@@ -116,6 +170,7 @@ exports.mirrorCall = mirrorCall;
 exports.updateCard = updateCard;
 exports.insertCard = insertCard;
 exports.updateAllCards = updateAllCards;
+exports.deleteBundle = deleteBundle;
 exports.init = init;
 	
 function httpHandler(req,res) {
@@ -125,6 +180,7 @@ function httpHandler(req,res) {
 
 	switch (page) {
 		case "subscription":
+			console.log("sub");
 			var postBody = "";
 			req.on("data",function(data) {
 				postBody += data;
@@ -159,16 +215,19 @@ function httpHandler(req,res) {
 							}), d.token, function(err,data) {
 								callbacks.subscriptionCallback(err, { data: d, item: data });
 							});
+						} else {
+							console.log("hmm no item id");
 						}
 					}
-					res.end(200);
+					console.log(d);
+					res.end("200");
 				} catch (e) {
-					res.end(500);
+					res.end("500");
 				}
 			});
 			break;
 		case "oauth2callback":
-			oauth2Client.getToken(u.query.code, function(err,tokens) {
+			oauth2Client.getToken(parsedUrl.query.code, function(err,tokens) {
 				if (err) {
 					console.log(err);
 					res.writeHead(500);
@@ -184,29 +243,12 @@ function httpHandler(req,res) {
 					oauth2Client.credentials = tokens;
 
 					// add subscriptions
-					if (config.callbacks.subscription) {
-						mirrorCall(mirror.subscriptions.insert({
-							"callbackUrl": config.subscription_callback,
-							"collection": "timeline",
-							"operation": [], // empty set = all
-							"userToken": index,
-							"verifyToken": config.verify_hash
-						}), tokens, logOnErr);
-					}
+					if (config.subscription_callback)
+						installSubscription(tokens, index);
 
 					// add contact interface
-					if (config.contactName) {
-						mirrorCall(mirror.contacts.insert({
-							"id": "prism_contact_provider_"+config.id,
-							"displayName": config.displayName,
-							"speakableName": config.speakableName,
-							"imageUrls": [config.contactIcon],
-							"priority": 7,
-							"acceptCommands": [
-								{"type":"POST_AN_UPDATE"}
-							]
-						}), tokens, logOnErr);
-					}
+					if (config.contactName)
+						installContact(tokens);
 
 					if (callbacks.newClientCallback)
 						callbacks.newClientCallback(tokens);
@@ -239,5 +281,28 @@ function httpHandler(req,res) {
 function logOnErr(err) {
 	if (err)
 		console.log(err);
+}
+
+function installSubscription(tokens,index) {
+	mirrorCall(mirror.subscriptions.insert({
+		"callbackUrl": config.subscription_callback,
+		"collection": "timeline",
+		"operation": [], // empty set = all
+		"userToken": index,
+		"verifyToken": config.verify_hash
+	}), tokens, logOnErr);
+}
+
+function installContact(tokens) {
+	mirrorCall(mirror.contacts.insert({
+		"id": "prism_contact_provider_"+config.id,
+		"displayName": config.displayName,
+		"speakableName": config.speakableName,
+		"imageUrls": [config.contactIcon],
+		"priority": 7,
+		"acceptCommands": [
+			{"type":"POST_AN_UPDATE"}
+		]
+		}), tokens, logOnErr);
 }
 
