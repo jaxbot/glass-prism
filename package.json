@@ -1,6 +1,6 @@
 {
   "name": "glass-prism",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Node.js framework for building Google Glass Mirror applications",
   "main": "index.js",
   "scripts": {
