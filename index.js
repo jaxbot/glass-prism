@@ -1,4 +1,4 @@
-/* Prism Entry Point
+/* Prism
  * A Node.js framework for Google Glass Mirror API applications
  */
 
@@ -7,7 +7,7 @@ var url = require('url');
 var fs = require('fs');
 
 // local helpers
-var http = require('./http');
+var http = require('http');
 
 // dot templates for the cards
 var dot = require('dot');
@@ -27,8 +27,8 @@ var client_tokens = [];
 var callbacks = {};
 var config = {};
 
-function init(_config, callback) {
-	config = _config;
+function init(configinput, callback) {
+	config = configinput;
 
 	// load all cards and turn into templates
 	if (!config.noCardTemplates)
@@ -52,7 +52,7 @@ function init(_config, callback) {
 
 		// the http interface allows connecting with the Google APIs
 		if (!config.noHttpInterface)
-			http.start(config.port);
+			http.createServer(httpHandler).listen(port);
 
 		// reinstall the subscriptions, in case a change or crash occurred
 		for (var index = 0; index < client_tokens.length; index++) {
@@ -66,6 +66,119 @@ function init(_config, callback) {
 		callback(err);
 	});
 }
+
+function httpHandler(req,res) {
+	var parsedUrl = url.parse(req.url, true)
+	var s = parsedUrl.pathname.split("/");
+	var page = s[s.length-1];
+
+	if (page === "subscription") {
+		var postBody = "";
+		req.on("data",function(data) {
+			postBody += data;
+			if (postBody.length > 1024 * 1024) {
+				postBody = null;
+				req.end();
+			}
+		});
+		req.on("end", function(data) {
+			try {
+				var d = JSON.parse(postBody);
+
+				if (d.verifyToken != config.verify_hash) {
+					logOnErr("Info: A bad verify hash was sent from the Google sub.");
+					res.end();
+					return;
+				}
+
+				if (!client_tokens[d.userToken]) {
+					logOnErr("Info: A bad user token was sent from the Google sub.");
+					res.end();
+					return;
+				}
+
+				d.token = client_tokens[d.userToken];
+
+				if (callbacks.subscriptionCallback) {
+					if (d.itemId) {
+						mirrorCall(mirror.timeline.get({
+							id: d.itemId
+						}), d.token, function(err,data) {
+							callbacks.subscriptionCallback(err,
+								{ data: d, item: data });
+						});
+					}
+				}
+				res.end("200");
+			} catch (e) {
+				logOnErr("Error in subscription reading.");
+				logOnErr(e);
+
+				// send the string 500, not the response header, so that Google
+				// will continue giving us subscriptions in the future.
+				res.end("500");
+			}
+		});
+		return;
+	}
+
+	if (page === "oauth2callback") {
+		oauth2Client.getToken(parsedUrl.query.code, function(err,tokens) {
+			if (err) {
+				res.writeHead(500);
+				res.write("Uh oh: The token login failed." +
+					"Chances are you loaded a page that was already loaded." +
+					"Try going back and pressing the 'get it on glass' button again.");
+				res.end();
+			} else {
+				var index = client_tokens.push(tokens) - 1;
+
+				fs.writeFile(".clienttokens.json", JSON.stringify(client_tokens,null,5));
+
+				client_tokens.push(tokens);
+
+				oauth2Client.credentials = tokens;
+
+				// add subscriptions
+				if (config.subscription_callback)
+					installSubscription(tokens, index);
+
+				// add contact interface
+				if (config.contactName)
+					installContact(tokens);
+
+				if (callbacks.newClientCallback)
+					callbacks.newClientCallback(tokens);
+
+				res.writeHead(302, { "Location": "success" });
+				res.end();
+			}
+		});
+		return;
+	}
+
+	if (page === "success") {
+		res.writeHead(200, { 'Content-type': 'text/html' });
+		fs.createReadStream("pages/success.html").pipe(res);
+		return;
+	}
+
+	if (page === "authorize") {
+		var uri = oauth2Client.generateAuthUrl({
+			access_type: 'offline',
+			approval_prompt: 'force',
+			scope: 'https://www.googleapis.com/auth/glass.timeline'
+		});
+		res.writeHead(302, { "Location": uri });
+		res.end();
+		return;
+	}
+
+	// default fallback
+	res.writeHead(200, { 'Content-type': 'text/html' });
+	fs.createReadStream("pages/index.html").pipe(res);
+}
+
 
 /* insertCard
  * Insert a card for a specific user token
@@ -158,8 +271,8 @@ function mirrorCall(call, tokens, callback) {
 }
 	
 function logOnErr(err) {
-	if (err)
-		console.log(err);
+	if (err && !config.noOutputErrors)
+		console.warn(err);
 }
 
 function installSubscription(tokens,index) {
