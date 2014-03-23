@@ -86,13 +86,13 @@ function httpHandler(req,res) {
 				var d = JSON.parse(postBody);
 
 				if (d.verifyToken != config.verify_hash) {
-					logOnErr("Info: A bad verify hash was sent from the Google sub.");
+					logOnErr("Info: A bad verify hash was received.");
 					res.end();
 					return;
 				}
 
 				if (!client_tokens[d.userToken]) {
-					logOnErr("Info: A bad user token was sent from the Google sub.");
+					logOnErr("Info: A bad user token was received.");
 					res.end();
 					return;
 				}
@@ -128,16 +128,13 @@ function httpHandler(req,res) {
 				res.writeHead(500);
 				res.write("Uh oh: The token login failed." +
 					"Chances are you loaded a page that was already loaded." +
-					"Try going back and pressing the 'get it on glass' button again.");
+					"Try going back and pressing 'get it on glass' again.");
 				res.end();
 			} else {
 				var index = client_tokens.push(tokens) - 1;
 
-				fs.writeFile(".clienttokens.json", JSON.stringify(client_tokens,null,5));
-
-				client_tokens.push(tokens);
-
-				oauth2Client.credentials = tokens;
+				if (!config.clientTokens)
+					updateClientTokens(config.tokenFileName);
 
 				// add subscriptions
 				if (config.subscription_callback)
@@ -319,7 +316,7 @@ function initClientTokens(filename) {
 
 	// read the connected users information from disk
 	try {
-		var filedata = fs.readFileSync(".clienttokens.json");
+		var filedata = fs.readFileSync(filename);
 		if (filedata) {
 			client_tokens = JSON.parse(filedata.toString());
 		}
@@ -328,6 +325,11 @@ function initClientTokens(filename) {
 			", using blank array");
 		client_tokens = [];
 	}
+}
+
+function updateClientTokens(filename) {
+	fs.writeFile(filename || ".clienttokens.json",
+		JSON.stringify(client_tokens,null,5));
 }
 
 exports.mirrorCall = mirrorCall;
