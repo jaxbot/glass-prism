@@ -5,9 +5,12 @@
 // include standard node libraries
 var url = require('url');
 var fs = require('fs');
-
-// local helpers
 var http = require('http');
+var events = require('events');
+var util = require('util');
+
+// make this module an event emitter
+module.exports = exports = new events.EventEmitter();
 
 // dot templates for the cards
 var dot = require('dot');
@@ -24,7 +27,6 @@ var mirror = null;
 var client_tokens = [];
 
 // options sent from the main application
-var callbacks = {};
 var config = {};
 
 function init(configinput, callback) {
@@ -42,21 +44,16 @@ function init(configinput, callback) {
 	oauth2Client = new googleapis.OAuth2Client(
 		config.client_id, config.client_secret, config.redirect_dir);
 
-	if (config.callbacks && config.callbacks.subscription)
-		callbacks.subscriptionCallback = config.callbacks.subscription;
-	if (config.callbacks && config.callbacks.newclient)
-		callbacks.newClientCallback = config.callbacks.newclient;
-
 	googleapis.discover('mirror','v1').execute(function(err,client) {
 		mirror = client.mirror;
 
 		// the http interface allows connecting with the Google APIs
 		if (!config.noHttpInterface)
-			http.createServer(httpHandler).listen(port || 8099);
+			http.createServer(httpHandler).listen(config.port || 8099);
 
 		// reinstall the subscriptions, in case a change or crash occurred
 		for (var index = 0; index < client_tokens.length; index++) {
-			if (config.subscription_callback)
+			if (config.subscribe)
 				installSubscription(client_tokens[index], index);
 			if (config.displayName)
 				installContact(client_tokens[index]);
@@ -99,15 +96,12 @@ function httpHandler(req,res) {
 
 				d.token = client_tokens[d.userToken];
 
-				if (callbacks.subscriptionCallback) {
-					if (d.itemId) {
-						mirrorCall(mirror.timeline.get({
-							id: d.itemId
-						}), d.token, function(err,data) {
-							callbacks.subscriptionCallback(err,
-								{ data: d, item: data });
-						});
-					}
+				if (d.itemId) {
+					mirrorCall(mirror.timeline.get({
+						id: d.itemId
+					}), d.token, function(err,data) {
+						exports.emit('subscription', { data: d, item: data });
+					});
 				}
 				res.end("200");
 			} catch (e) {
@@ -144,8 +138,7 @@ function httpHandler(req,res) {
 				if (config.contactName)
 					installContact(tokens);
 
-				if (callbacks.newClientCallback)
-					callbacks.newClientCallback(tokens);
+				exports.emit('newclient', tokens);
 
 				res.writeHead(302, { "Location": "success" });
 				res.end();
@@ -318,13 +311,13 @@ function initClientTokens(filename) {
 	try {
 		var filedata = fs.readFileSync(filename);
 		if (filedata) {
-			client_tokens = JSON.parse(filedata.toString());
+			return JSON.parse(filedata.toString());
 		}
 	} catch(e) {
 		logOnErr("Info: failed to load clienttoken file " + filename +
 			", using blank array");
-		client_tokens = [];
 	}
+	return [];
 }
 
 function updateClientTokens(filename) {
