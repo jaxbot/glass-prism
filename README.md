@@ -19,10 +19,12 @@
 	// file that stores client tokens of users
 	"tokenFileName": ".clienttokens.json",
 
-	"callbacks": {
-		// called whenever a new subscription is received.  todo: use .on
-		"subscription": function(err, { data: raw_data, item: timelineitem })
-	}
-
 }
 ```
+
+The following events are emitted from the framework:
+
+`newclient` : a new client has connected. Passes `tokens` as the argument, an object containing the connect user's OAuth tokens
+
+`subscription` : a subscription from the Google API has been received. Occurs when a card is replied to, deleted, pinned, etc.
+
