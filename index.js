@@ -42,9 +42,9 @@ function init(configinput, callback) {
 	oauth2Client = new googleapis.OAuth2Client(
 		config.client_id, config.client_secret, config.redirect_dir);
 
-	if (config.callbacks.subscription)
+	if (config.callbacks && config.callbacks.subscription)
 		callbacks.subscriptionCallback = config.callbacks.subscription;
-	if (config.callbacks.newclient)
+	if (config.callbacks && config.callbacks.newclient)
 		callbacks.newClientCallback = config.callbacks.newclient;
 
 	googleapis.discover('mirror','v1').execute(function(err,client) {
@@ -52,7 +52,7 @@ function init(configinput, callback) {
 
 		// the http interface allows connecting with the Google APIs
 		if (!config.noHttpInterface)
-			http.createServer(httpHandler).listen(port);
+			http.createServer(httpHandler).listen(port || 8099);
 
 		// reinstall the subscriptions, in case a change or crash occurred
 		for (var index = 0; index < client_tokens.length; index++) {
