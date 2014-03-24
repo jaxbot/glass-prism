@@ -29,6 +29,7 @@ var client_tokens = [];
 // options sent from the main application
 var config = {};
 
+// initialize the API, web server, etc.
 function init(configinput, callback) {
 	config = configinput;
 
@@ -36,6 +37,7 @@ function init(configinput, callback) {
 	if (!config.noCardTemplates)
 		exports.cards = initCards();
 
+	// either load client tokens from a file, or use the ones given
 	if (!config.clientTokens)
 		client_tokens = initClientTokens(config.tokenFileName);
 	else
@@ -44,14 +46,16 @@ function init(configinput, callback) {
 	oauth2Client = new googleapis.OAuth2Client(
 		config.client_id, config.client_secret, config.redirect_dir);
 
+	// discover the google API endpoints for the mirror API
 	googleapis.discover('mirror','v1').execute(function(err,client) {
+		// make this accessible to the class
 		mirror = client.mirror;
 
 		// the http interface allows connecting with the Google APIs
 		if (!config.noHttpInterface)
 			http.createServer(httpHandler).listen(config.port || 8099);
 
-		// reinstall the subscriptions, in case a change or crash occurred
+		// [re]install the subscriptions to existing clients
 		for (var index = 0; index < client_tokens.length; index++) {
 			if (config.subscribe)
 				installSubscription(client_tokens[index], index);
@@ -64,11 +68,14 @@ function init(configinput, callback) {
 	});
 }
 
+// handler for the HTTP requests, which are used to OAuth with the Google API.
 function httpHandler(req,res) {
 	var parsedUrl = url.parse(req.url, true)
 	var s = parsedUrl.pathname.split("/");
 	var page = s[s.length-1];
 
+	// requested by Google; the subscription callback should be set to point
+	// to this endpoint, and it should be publicly accessible over SSL
 	if (page === "subscription") {
 		var postBody = "";
 		req.on("data",function(data) {
@@ -116,6 +123,8 @@ function httpHandler(req,res) {
 		return;
 	}
 
+	// this endpoint should be defined on the Google API console for redirect
+	// after the user signs in
 	if (page === "oauth2callback") {
 		oauth2Client.getToken(parsedUrl.query.code, function(err,tokens) {
 			if (err) {
@@ -147,12 +156,15 @@ function httpHandler(req,res) {
 		return;
 	}
 
+	// redirected to upon OAuth success. This prevents the page from being
+	// reloaded and the OAuth failing upon return
 	if (page === "success") {
 		res.writeHead(200, { 'Content-type': 'text/html' });
 		fs.createReadStream("pages/success.html").pipe(res);
 		return;
 	}
 
+	// redirect to Google for OAuth sign on
 	if (page === "authorize") {
 		var uri = oauth2Client.generateAuthUrl({
 			access_type: 'offline',
@@ -173,83 +185,70 @@ function httpHandler(req,res) {
 /* insertCard
  * Insert a card for a specific user token
  */
-function insertCard(options,callback) {
+function insertCard(options,tokens,callback) {
 	if (!options.menuItems)
 		options.menuItems = [
-				{"action":"DELETE"},
-				{"action":"TOGGLE_PINNED"},
-			];
-	if (!options.bundleId)
-		options.bundleId = "";
-	if (!options.isBundleCover)
-		options.isBundleCover = false;
+			{"action":"DELETE"},
+			{"action":"TOGGLE_PINNED"},
+		];
 
-	mirrorCall(mirror.timeline.insert({
-		"html": options.html,
-		"menuItems": options.menuItems,
-		"sourceItemId": options.sourceItemId,
-		"bundleId": options.bundleId,
-		"isBundleCover": options.isBundleCover
-	}),options.tokens,callback);
+	mirrorCall(mirror.timeline.insert(options), tokens, callback);
 };
 
-/* updateAllCards
- * Update cards for all users by id
- */
-function updateAllCards(options) {
-	for (var i = 0; i < client_tokens.length; i++) {
-		options.tokens = client_tokens[i];
-		updateCard(options);
-	}
-}
-
 /* updateCard
- * Update a single card
+ * Update a single card by sourceItemId
  */
-function updateCard(options,callback) {
+function updateCard(options, tokens, callback) {
 	mirrorCall(
 		mirror.timeline.list({ "sourceItemId": options.sourceItemId,
-			"isPinned": options.pinned || true }),
-		options.tokens,
+			"isPinned": options.isPinned || true }),
+		tokens,
 		function(err,data) {
 			logOnErr(err);
 
 			if (data && data.items.length > 0) {
 				mirrorCall(mirror.timeline.patch({ "id": data.items[0].id },
-					{ "html": options.html }), options.tokens, callback);
+					options), tokens, callback);
+				patchCard(options,tokens,callback);
 			} else {
 				insertCard(options,callback);
 			}
-	});
+		}
+	);
 }
 
-function deleteBundle(options) {
-	for (var i = 0; i < client_tokens.length; i++) {
-		options.tokens = client_tokens[i];
-		mirrorCall(
-			mirror.timeline.list({ "bundleId": options.bundleId }),
-			options.tokens,
-			function(err,data) {
-				for (var j = 0; j < data.items.length; j++) {
-					options.id = data.items[j].id;
-					deleteCard(options);
-				}
+/* deleteBundle
+ * delete all items matching a bundleId
+ */
+function deleteBundle(options, tokens, callback) {
+	mirrorCall(
+		mirror.timeline.list(options),
+		tokens,
+		function(err,data) {
+			for (var j = 0; j < data.items.length; j++) {
+				options.id = data.items[j].id;
+				deleteCard(options, callback);
 			}
-		);
-	}
+		});
 }
 
-function deleteCard(options) {
+/* deleteCard
+ * Delete a card by id
+ */
+function deleteCard(options, tokens, callback) {
 	mirrorCall(
-		mirror.timeline.delete({ "id": options.id }),
-		options.tokens,
-		logOnErr);
+		mirror.timeline.delete(options),
+		tokens,
+		callback);
 }
 
-function patchCard(options,callback) {
+/* patchCard
+ * Update a card in-place by id
+ */
+function patchCard(options, tokens, callback) {
 	mirrorCall(
-		mirror.timeline.patch({ "id": options.id }, { "html": options.html }),
-		options.tokens,
+		mirror.timeline.patch({ "id": options.id }, options),
+		tokens,
 		callback);
 }
 
@@ -257,12 +256,7 @@ function patchCard(options,callback) {
  */
 function mirrorCall(call, tokens, callback) {
 	oauth2Client.credentials = tokens;
-	call.withAuthClient(oauth2Client).execute(callback);
-}
-	
-function logOnErr(err) {
-	if (err && !config.noOutputErrors)
-		console.warn(err);
+	call.withAuthClient(oauth2Client).execute(callback || logOnErr);
 }
 
 function installSubscription(tokens,index) {
@@ -288,6 +282,13 @@ function installContact(tokens) {
 		}), tokens, logOnErr);
 }
 
+// Helper function to log any problems we run into when calling APIs
+function logOnErr(err) {
+	if (err && !config.noOutputErrors)
+		console.warn(err);
+}
+
+// Load the card templates
 function initCards() {
 	var cards = {}
 
@@ -304,6 +305,7 @@ function initCards() {
 	return cards;
 }
 
+// Load in the tokens we store
 function initClientTokens(filename) {
 	var filename = filename || ".clienttokens.json";
 
@@ -320,15 +322,30 @@ function initClientTokens(filename) {
 	return [];
 }
 
+// Save the tokens we store
 function updateClientTokens(filename) {
 	fs.writeFile(filename || ".clienttokens.json",
 		JSON.stringify(client_tokens,null,5));
 }
 
-exports.mirrorCall = mirrorCall;
-exports.updateCard = updateCard;
-exports.insertCard = insertCard;
-exports.updateAllCards = updateAllCards;
-exports.deleteBundle = deleteBundle;
+// Export our precious with the outside world
+
 exports.init = init;
+exports.insertCard = insertCard;
+exports.updateCard = updateCard;
+exports.deleteBundle = deleteBundle;
+exports.deleteCard = deleteCard;
+exports.patchCard = patchCard;
+exports.mirrorCall = mirrorCall;
+exports.mirror = mirror;
+
+exports.all = {}
+
+for (key in exports) {
+	exports.all[key] = function(options,callback) {
+		for (var i = 0; i < client_tokens.length; i++) {
+			exports[key](options, client_tokens[i], callback);
+		}
+	}
+}
 
