@@ -143,11 +143,11 @@ function httpHandler(req,res) {
 					updateClientTokens(config.tokenFileName);
 
 				// add subscriptions
-				if (config.subscription_callback)
+				if (config.subscribe)
 					installSubscription(tokens, index);
 
 				// add contact interface
-				if (config.contactName)
+				if (config.displayName)
 					installContact(tokens);
 
 				exports.emit('newclient', tokens);
@@ -368,6 +368,7 @@ exports.deleteCard = deleteCard;
 exports.patchCard = patchCard;
 exports.mirrorCall = mirrorCall;
 exports.mirror = mirror;
+exports.client_tokens = client_tokens;
 
 exports.all = {}
 

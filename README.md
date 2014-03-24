@@ -1,4 +1,77 @@
+# Glass Prism
+
+A Node.js framework and boilerplate for Google Glass Mirror applications.
+
+## Getting started
+
+```
+npm install glass-prism
+```
+
+Create an application in the [Google API Console](https://console.developers.google.com/). [Here's a tutorial about that.](http://okaysass.com/posts/14-03-16-tutorial-node-js-mirror-api-google-glass)
+
+Example application:
+
+```
+var prism = require("glass-prism");
+
+prism.init({
+	"client_id": "3489342843-383i3euefwjkf.apps.googleusercontent.com",
+	"client_secret": "kjsdlDKLJSSDLSDJsdkjsdkl",
+	"redirect_dir": "http://localhost:8099/oauth2callback"
+}, function() {
+	console.log('Ready to roll!');
+	prism.all.insertCard({ text: "Hello, world!" });
+});
+
+prism.on('newclient', function(tokens) {
+	prism.insertCard({ html: prism.cards.main("Hi!") }, tokens);
+});
+
+```
+
+## Cards
+
+Prism automatically compiles together card templates for your use.
+Simply place HTML cards in cards/, and they will be converted into a doT template function
+stored in prism.cards. For example:
+
+```
+<article>
+	<section>
+		<div class="text-auto-size">
+			<p>{{=it.config.hostname}}</p>
+			<p>
+				<span class='{{=it.cpuColor}}'>{{=it.avg}}</span>
+			</p>
+			<p class='{{=it.memColor}}'>{{=it.memused}}/{{=it.memtotal}}mb</p>
+		</div>
+	</section>
+	<footer><div>{{=it.uptime}}</div></footer>
+</article>
+```
+
+```
+var args = {
+	uptime: 0,
+	avg: 0,
+	memtotal: 0,
+	memused: 0,
+	cpuColor: 'green',
+	memColor: 'green',
+	config: config
+};
+var html = prism.cards.main(args);
+prism.insertCard({ html: html }, tokens);
+```
+
+The [Mirror API playground](https://developers.google.com/glass/tools-downloads/playground) is a great place to create HTML for your cards.
+
+More information [about doT templates](http://olado.github.io/doT/index.html).
+
 ## Configuration options
+
+These are passed to the init function as a JSON object.
 
 ```
 {
@@ -18,7 +91,32 @@
 
 	// file that stores client tokens of users
 	"tokenFileName": ".clienttokens.json",
+	// disable scanning for card templates
+	"noCardTemplates": null,
+	// disable the HTTP interface. If this is set, client tokens will need to be provided
+	"noHttpInterface": null,
+	// whether or not we care about subscribers
+	"subscribe": null,
+	// if set, a contact interface for -post an update to- is created
+	"displayName": null,
 
+	// if subscriptions are used, this string is used to confirm that Google sent the
+	// subscription
+	"verify_hash": null,
+	
+	// this is the actual URL Google sends a POST request to. This *must* be publicly
+	// accessible over HTTPS (with valid SSL working).
+	// If you only care about sending stuff to the device, you can ignore this safely.
+	"subscription_callback": null,
+	
+	// the phonetic name for the contact
+	"speakableName": null,
+
+	// an icon for the endpoint, shown in the Glass post menu
+	"contactIcon": null,
+
+	// if set, nothing will be output to the console
+	"noOutputErrors": null
 }
 ```
 
@@ -27,4 +125,55 @@ The following events are emitted from the framework:
 `newclient` : a new client has connected. Passes `tokens` as the argument, an object containing the connect user's OAuth tokens
 
 `subscription` : a subscription from the Google API has been received. Occurs when a card is replied to, deleted, pinned, etc.
+
+## Methods and properties
+
+```
+exports.init = init;
+exports.insertCard = insertCard;
+exports.updateCard = updateCard;
+exports.deleteBundle = deleteBundle;
+exports.deleteCard = deleteCard;
+exports.patchCard = patchCard;
+exports.mirrorCall = mirrorCall;
+exports.mirror = mirror;
+exports.client_tokens = client_tokens;
+exports.all
+```
+
+Most methods take the following as arguments:
+
+```
+patchCard(options, tokens, [callback])
+```
+
+where
+
+`options` is a JSON object with the data to send to the Google API, right from the [API reference](https://developers.google.com/glass/v1/reference).
+
+`tokens` is one of the client tokens, usually returned from a callback or taken from client_tokens
+
+`callback` is a callback with (err, data)
+
+Any of the above methods can be called with exports.all, which runs the command on *all* client tokens, and accepts (options, callback) as the arguments. E.g.:
+
+```
+prism.all.updateCard({ html: html, isPinned: true, sourceItemId: "gtop_"+config.hostname });
+```
+
+More documentation coming soon!j
+
+## Examples
+
+I built Prism so I could abstract out a lot of the code for my Mirror API projects, and as such have a few examples to share. More are welcome ;)
+
+[gtop](https://github.com/jaxbot/gtop) - Server monitor
+[Glass-Mint](https://github.com/jaxbot/glass-mint) - Mint.com banking information on Glass
+
+## License
+MIT
+
+## Shameless plug
+
+I do stuff with Google Glass, Node.js, and Vim plugins. [Follow me](https://github.com/jaxbot) if that sounds like something you're into (or you just want to make my day!)
 
