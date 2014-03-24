@@ -161,11 +161,8 @@ function httpHandler(req,res) {
 
 	// redirected to upon OAuth success. This prevents the page from being
 	// reloaded and the OAuth failing upon return
-	if (page === "success") {
-		res.writeHead(200, { 'Content-type': 'text/html' });
-		fs.createReadStream("pages/success.html").pipe(res);
-		return;
-	}
+	if (page === "success")
+		return sendHtmlReply(res, "success");
 
 	// redirect to Google for OAuth sign on
 	if (page === "authorize") {
@@ -180,10 +177,30 @@ function httpHandler(req,res) {
 	}
 
 	// default fallback
-	res.writeHead(200, { 'Content-type': 'text/html' });
-	fs.createReadStream("pages/index.html").pipe(res);
+	sendHtmlReply(res, "index");
 }
 
+function sendHtmlReply(res, page) {
+	res.writeHead(200, { 'Content-type': 'text/html' });
+
+	var overridePage = __dirname + "/../../pages/" + page + ".html";
+	var defaultPage = __dirname + "/pages/" + page + ".html";
+	var finalFallback = "pages/" + page + ".html";
+
+	try {
+		fs.createReadStream(overridePage).pipe(res);
+	} catch (e) {
+		try {
+			fs.createReadStream(defaultPage).pipe(res);
+		} catch (e) {
+			try {
+				fs.createReadStream(finalFallback).pipe(res);
+			} catch (e) {
+				logOnErr(e);
+			}
+		}
+	}
+}
 
 /* insertCard
  * Insert a card for a specific user token
@@ -295,15 +312,24 @@ function logOnErr(err) {
 // Load the card templates
 function initCards() {
 	var cards = {}
+	var files;
+	var dir;
 
 	try {
-		var files = fs.readdirSync("cards/");
-		for (var i = 0; i < files.length; i++) {
-			cards[files[i].replace('.html','')] = dot.template(
-				fs.readFileSync("cards/"+files[i]));
-		}
+		dir = __dirname + "/../../cards/";
+		files = fs.readdirSync(dir);
 	} catch(e) {
-		logOnErr("Info: no cards folder, but noCardTemplates was not set");
+		try {
+			dir = "cards/";
+			files = fs.readdirSync(dir);
+		} catch (e) {
+			files = [];
+		}
+	}
+
+	for (var i = 0; i < files.length; i++) {
+		cards[files[i].replace('.html','')] = dot.template(
+			fs.readFileSync(dir + files[i]));
 	}
 
 	return cards;
