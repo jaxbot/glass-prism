@@ -129,31 +129,62 @@ The following events are emitted from the framework:
 ## Methods and properties
 
 ```
-exports.init = init;
-exports.insertCard = insertCard;
-exports.updateCard = updateCard;
-exports.deleteBundle = deleteBundle;
-exports.deleteCard = deleteCard;
-exports.patchCard = patchCard;
-exports.mirrorCall = mirrorCall;
-exports.mirror = mirror;
-exports.client_tokens = client_tokens;
-exports.all
+function init(configinput, callback)
 ```
 
-Most methods take the following as arguments:
+Used to initialize the Prism interface and discover the Google API endpoints. Executes callback(err) when completed.
+
+```
+insertCard(options, tokens, [callback])
+```
+
+Insert a card to the device authed with `token`, where `token` can be obtained from a [callback] or
+the `client_tokens` property. `options` is the JSON object to send to the Mirror API. callback is sent (err, data).
+
+```
+updateCard(options, tokens, [callback])
+```
+
+Update a card by sourceItemId. The card is first requested; if it does not exist, a new one is inserted. This is useful when you want to send information that will always be updated to the device. If `options.isPinned` is not set, it defaults to true, meaning new cards will always be inserted unless one is pinned. `tokens` and `callback` are the same as above.
+
+```
+deleteBundle(options, tokens, [callback])
+```
+
+Deletes a bundle by `options.bundleId`
+
+```
+deleteCard(options, tokens, [callback])
+```
+
+Deletes a card by id
 
 ```
 patchCard(options, tokens, [callback])
 ```
 
-where
+Updates a card by id
 
-`options` is a JSON object with the data to send to the Google API, right from the [API reference](https://developers.google.com/glass/v1/reference).
+```
+mirrorCall(call, tokens, callback)
+```
 
-`tokens` is one of the client tokens, usually returned from a callback or taken from client_tokens
+Places a call to the Mirror API, authenticated with `token`. `call` is a function returned from `mirror`, which contains discovered functions, i.e.
 
-`callback` is a callback with (err, data)
+```
+mirrorCall(mirror.timeline.list({ "sourceItemId": options.sourceItemId,
+		"isPinned": options.isPinned || true }), tokens, callback);
+```
+
+```
+client_tokens
+```
+
+An array of the client OAuth tokens.
+
+```
+all
+```
 
 Any of the above methods can be called with exports.all, which runs the command on *all* client tokens, and accepts (options, callback) as the arguments. E.g.:
 
@@ -161,7 +192,6 @@ Any of the above methods can be called with exports.all, which runs the command 
 prism.all.updateCard({ html: html, isPinned: true, sourceItemId: "gtop_"+config.hostname });
 ```
 
-More documentation coming soon!j
 
 ## Examples
 
