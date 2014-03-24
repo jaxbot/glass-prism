@@ -107,8 +107,11 @@ function httpHandler(req,res) {
 					mirrorCall(mirror.timeline.get({
 						id: d.itemId
 					}), d.token, function(err,data) {
-						exports.emit('subscription', { data: d, item: data });
+						exports.emit('subscription', err, {
+							data: d, item: data });
 					});
+				} else {
+					exports.emit('subscription', null, { data: d });
 				}
 				res.end("200");
 			} catch (e) {
@@ -185,7 +188,7 @@ function httpHandler(req,res) {
 /* insertCard
  * Insert a card for a specific user token
  */
-function insertCard(options,tokens,callback) {
+function insertCard(options, tokens, callback) {
 	if (!options.menuItems)
 		options.menuItems = [
 			{"action":"DELETE"},
@@ -207,11 +210,10 @@ function updateCard(options, tokens, callback) {
 			logOnErr(err);
 
 			if (data && data.items.length > 0) {
-				mirrorCall(mirror.timeline.patch({ "id": data.items[0].id },
-					options), tokens, callback);
-				patchCard(options,tokens,callback);
+				options.id = data.items[0].id;
+				patchCard(options, tokens, callback);
 			} else {
-				insertCard(options,callback);
+				insertCard(options, tokens, callback);
 			}
 		}
 	);
@@ -284,8 +286,10 @@ function installContact(tokens) {
 
 // Helper function to log any problems we run into when calling APIs
 function logOnErr(err) {
-	if (err && !config.noOutputErrors)
+	if (err && !config.noOutputErrors) {
 		console.warn(err);
+		console.trace();
+	}
 }
 
 // Load the card templates
@@ -342,10 +346,12 @@ exports.mirror = mirror;
 exports.all = {}
 
 for (key in exports) {
-	exports.all[key] = function(options,callback) {
-		for (var i = 0; i < client_tokens.length; i++) {
-			exports[key](options, client_tokens[i], callback);
+	(function(key) {
+		exports.all[key] = function(options,callback) {
+			for (var i = 0; i < client_tokens.length; i++) {
+				exports[key](options, client_tokens[i], callback);
+			}
 		}
-	}
+	})(key);
 }
 
