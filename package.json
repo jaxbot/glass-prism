@@ -1,6 +1,6 @@
 {
   "name": "glass-prism",
-  "version": "0.0.2",
+  "version": "0.1.0",
   "description": "Node.js framework for building Google Glass Mirror applications",
   "main": "index.js",
   "scripts": {
@@ -8,7 +8,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/jaxbot/repos/glass-prism"
+    "url": "https://github.com/jaxbot/glass-prism"
   },
   "keywords": [
     "glass",
