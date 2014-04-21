@@ -207,3 +207,8 @@ MIT
 
 I do stuff with Google Glass, Node.js, and Vim plugins. [Follow me](https://github.com/jaxbot) if that sounds like something you're into (or you just want to make my day!)
 
+### Other Glass stuff
+
+[Google Glass development resources](http://jaxbot.me/glassdev)
+
+[My other Glass projects](https://github.com/search?q=%40jaxbot+glass)
