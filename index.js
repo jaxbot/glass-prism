@@ -152,8 +152,12 @@ function httpHandler(req,res) {
 
 				exports.emit('newclient', tokens);
 
-				res.writeHead(302, { "Location": "success" });
-				res.end();
+				if (config.postAuthorizationCallback)
+					config.postAuthorizationCallback(res, tokens);
+				else {
+					res.writeHead(302, { "Location": "success" });
+					res.end();
+				}
 			}
 		});
 		return;
@@ -174,6 +178,15 @@ function httpHandler(req,res) {
 		res.writeHead(302, { "Location": uri });
 		res.end();
 		return;
+	}
+
+	if (config.routes) {
+		for (key in config.routes) {
+			if (s[s.length - 2] == key) {
+				config.routes[key](req, res, s);
+				return;
+			}
+		}
 	}
 
 	// default fallback
@@ -368,7 +381,10 @@ exports.deleteCard = deleteCard;
 exports.patchCard = patchCard;
 exports.mirrorCall = mirrorCall;
 exports.mirror = mirror;
-exports.client_tokens = client_tokens;
+exports.client_tokens = function () {
+	return client_tokens;
+}
+exports.updateClientTokens = updateClientTokens;
 
 exports.all = {}
 
