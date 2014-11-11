@@ -50,6 +50,7 @@ function init(configinput, callback) {
 	googleapis.discover('mirror','v1').execute(function(err,client) {
 		// make this accessible to the class
 		mirror = client.mirror;
+		exports.mirror = mirror;
 
 		// the http interface allows connecting with the Google APIs
 		if (!config.noHttpInterface)
